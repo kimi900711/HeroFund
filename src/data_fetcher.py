@@ -52,12 +52,30 @@ def update_stock_basics():
         # Combine them
         df_basics = pd.concat([df_basics_a, df_basics_hk], ignore_index=True)
 
-        # Add ST indicator based on name
-        df_basics['is_st'] = df_basics['name'].str.contains('ST').astype(bool)
+        # Let's try to get proper industry info via stock_board_industry_name_em
+        try:
+            # Get full industry mapping
+            industry_list = ak.stock_board_industry_name_em()
+            all_industries = industry_list['板块名称'].tolist()
 
-        # Placeholder for industry and pledge rate (requires multiple API calls or specific endpoints)
-        df_basics['industry'] = 'Unknown'
-        df_basics['pledge_rate'] = 0.0
+            industry_mapping = {}
+            for ind in all_industries:
+                try:
+                    # Get constituents of this industry
+                    ind_stocks = ak.stock_board_industry_cons_em(symbol=ind)
+                    for code in ind_stocks['代码']:
+                        industry_mapping[code] = ind
+                except Exception:
+                    continue
+
+            df_basics['industry'] = df_basics['symbol'].map(industry_mapping).fillna('Unknown')
+        except Exception as e:
+            logging.warning(f"Could not fetch precise industry data: {e}")
+            df_basics['industry'] = 'Unknown'
+
+        # Add ST indicator based on name
+        df_basics['is_st'] = df_basics['name'].str.contains('ST', na=False).astype(bool)
+        df_basics['pledge_rate'] = 0.0  # Placeholder, deep pledge data is heavy to fetch
 
         # Upsert into DuckDB
         conn.register('df_basics_view', df_basics)
@@ -107,15 +125,32 @@ def update_daily_data(symbols, max_symbols=100):
                     '收盘': 'close', '成交量': 'volume', '成交额': 'amount', '换手率': 'turnover'
                 })
             else:
-                # Fetch daily data (use stock_zh_a_daily as it seems more stable in this env)
-                # Need to prefix with sh/sz
-                prefix = 'sh' if symbol.startswith(('600', '601', '603', '688')) else 'sz'
-                full_symbol = f"{prefix}{symbol}"
+                # Need to use qfq (前复权) to get adjusted prices.
+                try:
+                    df_daily = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+                    if df_daily.empty:
+                        continue
 
-                df_daily = ak.stock_zh_a_daily(symbol=full_symbol, start_date=start_date, end_date=end_date)
-                if df_daily.empty:
-                    continue
-                # Columns are already in English: date, open, high, low, close, volume, amount, outstanding_share, turnover
+                    # Rename columns to match schema
+                    df_daily = df_daily.rename(columns={
+                        '日期': 'date',
+                        '开盘': 'open',
+                        '最高': 'high',
+                        '最低': 'low',
+                        '收盘': 'close',
+                        '成交量': 'volume',
+                        '成交额': 'amount',
+                        '换手率': 'turnover'
+                    })
+                except Exception as e:
+                    logging.warning(f"Failed to fetch qfq data for {symbol}, trying unadjusted. Error: {e}")
+                    # Fallback to unadjusted if network blocks it (like spot APIs)
+                    prefix = 'sh' if symbol.startswith(('600', '601', '603', '688')) else 'sz'
+                    full_symbol = f"{prefix}{symbol}"
+
+                    df_daily = ak.stock_zh_a_daily(symbol=full_symbol, start_date=start_date, end_date=end_date)
+                    if df_daily.empty:
+                        continue
 
             df_daily['symbol'] = symbol
 
@@ -216,7 +251,7 @@ def update_index_data(index_symbols=["000300"]):
 
     conn.close()
 
-def run_pipeline(demo_mode=True):
+def run_pipeline(demo_mode=False):
     """Runs the full data fetching pipeline."""
     # 1. Initialize DB if not exists
     from database_init import init_db
@@ -230,8 +265,8 @@ def run_pipeline(demo_mode=True):
         return
 
     # 3. Update Daily Data
-    # For a real system, you'd process all symbols. For testing, we limit it.
-    max_syms = 20 if demo_mode else None # Fetch 20 stocks for quick testing
+    # Fetch for all symbols unless demo_mode is specified
+    max_syms = 200 if demo_mode else None
     update_daily_data(all_symbols, max_symbols=max_syms)
 
     # 4. Update Index Data (HS300: 000300, SH Composite: 000001)
@@ -240,5 +275,4 @@ def run_pipeline(demo_mode=True):
     logging.info("Data pipeline finished successfully.")
 
 if __name__ == "__main__":
-    # Run in demo mode by default to prevent huge data pulls during dev
-    run_pipeline(demo_mode=True)
+    run_pipeline(demo_mode=False)

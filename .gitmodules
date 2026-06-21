@@ -1,0 +1,6 @@
+[submodule "src/serenity-skill"]
+	path = src/serenity-skill
+	url = https://github.com/muxuuu/serenity-skill
+[submodule "src/Sequoia-X"]
+	path = src/Sequoia-X
+	url = https://github.com/sngyai/Sequoia-X

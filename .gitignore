@@ -4,3 +4,4 @@ __pycache__/
 *.duckdb
 *.duckdb.wal
 streamlit.log
+data/*.db
