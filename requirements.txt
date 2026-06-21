@@ -1,0 +1,8 @@
+akshare
+duckdb
+pandas
+numpy
+google-genai
+streamlit
+plotly
+pyyaml

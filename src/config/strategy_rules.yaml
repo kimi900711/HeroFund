@@ -1,0 +1,21 @@
+# Strategy Rules for the Triple Funnel Engine
+
+macro_filter:
+  # Compute ratio of stocks above their 50-day moving average
+  # If the ratio is above this threshold, macro environment is favorable
+  min_above_50ma_ratio: 0.30
+
+sector_filter:
+  # Calculate 50-day Relative Price Strength (RPS) for sectors/industries
+  # Keep sectors in the top percentile
+  top_rps_percentile: 0.20
+
+stock_filter:
+  # Filters for individual stocks within the selected sectors
+  exclude_st: true
+  max_pledge_rate: 50.0  # Percentage
+  technical:
+    # Requires stock price to be above 20-day MA
+    price_above_ma: [20, 50]
+    # Requires volume to be decreasing (shrinkage pullback) over recent days
+    volume_shrink_days: 3
